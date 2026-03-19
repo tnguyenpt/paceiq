@@ -113,6 +113,17 @@ Current process: manual Garmin screenshots + periodic value logging.
 - Used OpenClaw bridge to reuse existing AI runtime
 - Added timeout/fallback behavior to keep sync reliable under AI instability
 
+## Suggested screenshots (portfolio)
+
+Add these files under `docs/screenshots/`:
+
+- `dashboard-status.png`
+- `post-run-analysis.png`
+- `weekly-plan-output.png`
+- `garmin-weekly-snapshot.png`
+
+When ready, they can be embedded directly in this README.
+
 ## Next iteration (portfolio roadmap)
 
 - `--no-ai` explicit mode for guaranteed fast sync
