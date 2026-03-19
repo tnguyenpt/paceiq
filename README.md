@@ -22,7 +22,7 @@ AI-assisted coaching workflow for a sub-1:40 half marathon goal.
 - Run classification (easy/tempo/long/etc.)
 - HR zone and pacing analysis
 - Weekly plan generation
-- Shoe rotation mileage tracking
+- Shoe rotation mileage tracking (rule-based assignment inside PaceIQ)
 - CLI dashboard + status commands
 - Optional webhook listener
 
@@ -112,6 +112,7 @@ Current process: manual Garmin screenshots + periodic value logging.
 - Chose CLI-first UX for iteration speed
 - Used OpenClaw bridge to reuse existing AI runtime
 - Added timeout/fallback behavior to keep sync reliable under AI instability
+- Uses PaceIQ shoe assignment rules as source-of-truth (ignores Strava shoe metadata for lower user overhead)
 
 ## Suggested screenshots (portfolio)
 

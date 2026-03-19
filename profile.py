@@ -177,6 +177,15 @@ TEMPO_PROGRESSION = [
     },
 ]
 
+SHOE_ASSIGNMENT_RULES = {
+    "tempo": "Saucony Endorphin Speed 5",
+    "race_effort": "Saucony Endorphin Speed 5",
+    "easy": "Adidas Evo SL Woven",
+    "moderate": "Adidas Evo SL Woven",
+    "long_run": "Adidas Evo SL Woven",
+    "default": "Adidas Evo SL Woven",
+}
+
 SHOE_ROTATION = {
     "Adidas Evo SL Woven": {
         "role": "easy and long runs",

@@ -6,7 +6,7 @@ Converts raw Strava data into structured, annotated run summaries.
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 
-from profile import HR_ZONES, SHOE_ROTATION, RUNNER_PROFILE
+from profile import HR_ZONES, SHOE_ROTATION, RUNNER_PROFILE, SHOE_ASSIGNMENT_RULES
 
 
 # ---------------------------------------------------------------------------
@@ -127,15 +127,8 @@ def compute_hr_zone_breakdown(heart_rate_data: List[Dict]) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 
 def recommend_shoe(run_type: str) -> str:
-    """Return the recommended shoe name for a given run type."""
-    mapping = {
-        "tempo": "Saucony Endorphin Speed 5",
-        "race_effort": "Saucony Endorphin Speed 5",
-        "easy": "Adidas Evo SL Woven",
-        "moderate": "Adidas Evo SL Woven",
-        "long_run": "Adidas Evo SL Woven",
-    }
-    return mapping.get(run_type, "Adidas Evo SL Woven")
+    """Return the PaceIQ-assigned shoe based on rule mapping (ignores Strava shoe metadata)."""
+    return SHOE_ASSIGNMENT_RULES.get(run_type, SHOE_ASSIGNMENT_RULES.get("default", "Adidas Evo SL Woven"))
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +269,8 @@ def analyze_activity(
         "hr_zone_breakdown": hr_zone_breakdown,
         "flags": flags,
         "shoe_recommendation": shoe_recommendation,
-        "shoe_used": shoe_recommendation,  # default to recommendation; can be overridden
+        "shoe_used": shoe_recommendation,
+        "shoe_source": "rule",
         "week_number": week_number,
         "year": year,
     }
