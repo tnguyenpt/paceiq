@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+
+# Env/secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Local runtime/data
+logs/
+artifacts/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
