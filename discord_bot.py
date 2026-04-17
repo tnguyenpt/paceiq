@@ -1,10 +1,10 @@
 """
-Jarvis Discord Bot — orchestrator for Tony's personal Discord server.
+Stride Discord Bot — orchestrator for Tony's personal Discord server.
 
 Channel routing:
 - #running (DISCORD_RUNNING_CHANNEL_ID) → full PaceIQ running coach mode
-- #general → general Jarvis assistant mode
-- Other channels → Jarvis responds contextually
+- #general → general Stride assistant mode
+- Other channels → Stride responds contextually
 
 Slash commands:
 - /sync → pull latest Strava activities
@@ -94,7 +94,7 @@ def build_running_context() -> str:
 
 
 async def ask_jarvis(channel_id: int, user_message: str, mode: str) -> str:
-    """Send a message to Claude as Jarvis and stream the response."""
+    """Send a message to Claude as Stride and stream the response."""
     config = get_config()
     api_key = config.get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -144,7 +144,7 @@ async def ask_jarvis(channel_id: int, user_message: str, mode: str) -> str:
 
 @bot.event
 async def on_ready():
-    print(f"Jarvis online as {bot.user}")
+    print(f"Stride online as {bot.user}")
     try:
         synced = await tree.sync()
         print(f"Synced {len(synced)} slash commands")
@@ -307,7 +307,7 @@ def run_discord_bot():
     if not token:
         print("Error: DISCORD_BOT_TOKEN not set in .env")
         sys.exit(1)
-    print("Starting Jarvis Discord bot...")
+    print("Starting Stride Discord bot...")
     bot.run(token)
 
 

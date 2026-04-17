@@ -10,7 +10,7 @@ Usage:
     python main.py plan               # Generate this week's training plan
     python main.py webhook            # Start Strava webhook listener
     python main.py status             # Quick status check
-    python main.py discord            # Start Jarvis Discord bot
+    python main.py discord            # Start Stride Discord bot
 """
 
 import sys
@@ -439,7 +439,7 @@ Commands:
   plan            Generate this week's training plan with Claude
   webhook         Start Strava webhook listener (port 5000)
   status          Quick status: week progress and shoe mileage
-  discord         Start Jarvis Discord bot
+  discord         Start Stride Discord bot
 
 Examples:
   python main.py
