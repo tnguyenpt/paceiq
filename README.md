@@ -1,133 +1,173 @@
-# PaceIQ — AI Running Coach
+# Jarvis
 
-AI-assisted coaching workflow for a sub-1:40 half marathon goal.
+Your personal Discord running coach and agent orchestrator
 
-## Product Lens (PM framing)
+---
 
-**Problem:** training data exists (Strava/Garmin), but actionable daily coaching is inconsistent.
+Jarvis is a Discord bot that lives in Tony's personal server. In the **#running** channel, it's a full-stack running coach — pulling from Strava, analyzing every run, generating weekly training plans, and tracking shoe mileage. In **#general**, it's just Jarvis: a sharp, resourceful assistant for whatever Tony needs.
 
-**Who it's for:** self-coached runners who want personalized, structured guidance from their own activity history.
+The PaceIQ engine handles the data plumbing (Strava OAuth, activity analysis, HR zone breakdowns, SQLite persistence). Jarvis handles the judgment, the coaching voice, and the Discord interface.
 
-**Job to be done:** *"Turn my recent runs into clear next-run decisions and weekly planning."*
-
-**MVP Success Criteria:**
-- Sync recent activities reliably
-- Produce post-run analysis with clear coaching guidance
-- Generate weekly plan from recent data
-- Track shoe mileage and training consistency
-
-## Core capabilities
-
-- Strava sync + activity ingestion
-- Run classification (easy/tempo/long/etc.)
-- HR zone and pacing analysis
-- Weekly plan generation
-- Shoe rotation mileage tracking (rule-based assignment inside PaceIQ)
-- CLI dashboard + status commands
-- Optional webhook listener
-
-## AI provider modes
-
-PaceIQ supports 3 coaching modes:
-
-1. `LLM_PROVIDER=openclaw` (recommended)
-   - Uses existing OpenClaw agent runtime
-2. `LLM_PROVIDER=openai`
-   - Direct OpenAI API key
-3. `LLM_PROVIDER=anthropic`
-   - Direct Anthropic API key
-
-If AI is unavailable, sync still proceeds and returns fallback messaging.
+---
 
 ## Architecture
 
 ```text
-paceiq/
-├── main.py              # CLI orchestration
-├── strava_client.py     # OAuth + API integration
-├── activity_analyzer.py # Run analysis and heuristics
-├── coach.py             # Provider-agnostic coaching layer
-├── weekly_planner.py    # Weekly plan generation + save
-├── database.py          # SQLite persistence
-├── profile.py           # Runner profile and training targets
-└── dashboard.py         # Terminal output UX
+Jarvis (Discord bot)
+├── discord_bot.py        # Bot core: message routing, slash commands, conversation history
+│
+└── PaceIQ engine
+    ├── main.py           # CLI orchestration + command routing
+    ├── coach.py          # Jarvis coaching persona + Claude integration
+    ├── strava_client.py  # OAuth + Strava API
+    ├── activity_analyzer.py  # Run classification, HR zones, elevation handling
+    ├── weekly_planner.py # Weekly plan generation
+    ├── database.py       # SQLite persistence
+    ├── profile.py        # Tony's runner profile and training targets
+    └── dashboard.py      # Terminal output UX
 ```
+
+### Discord Channel Structure
+
+| Channel | Mode | What Jarvis does |
+|---|---|---|
+| #running | Running coach | Full PaceIQ analysis, plans, shoe tracking |
+| #general | General assistant | Whatever you need |
+| #jarvis / #stride | Running coach | Same as #running |
+| DMs | General assistant | Full access, conversational |
+
+---
 
 ## Setup
 
+### Prerequisites
+
+- Python 3.9+
+- Strava developer account + app ([developers.strava.com](https://developers.strava.com))
+- Anthropic API key
+- Discord bot token
+
+### Installation
+
 ```bash
-cd /home/clawed/projects/paceiq
+cd /path/to/paceiq
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
 ```
 
-### Required `.env` values
+### Configure .env
+
+```bash
+cp .env.example .env
+# Edit .env with your keys
+```
+
+Required values:
 
 ```env
 STRAVA_CLIENT_ID=...
 STRAVA_CLIENT_SECRET=...
-STRAVA_REFRESH_TOKEN=
+STRAVA_REFRESH_TOKEN=        # filled by setup_auth.py
 
-LLM_PROVIDER=openclaw
-LLM_MODEL=openai-codex/gpt-5.3-codex
-OPENCLAW_SESSION_ID=
-# OPENAI_API_KEY=
-# ANTHROPIC_API_KEY=
+ANTHROPIC_API_KEY=...
+
+DISCORD_BOT_TOKEN=...
+DISCORD_RUNNING_CHANNEL_ID=  # right-click channel in Discord → Copy ID
 ```
 
 ### Authorize Strava
 
 ```bash
-./.venv/bin/python setup_auth.py
+python setup_auth.py
 ```
+
+Follow the OAuth prompts. This saves your refresh token to `.env`.
+
+### Discord Bot Setup
+
+1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
+2. Create a new application → Bot tab → create bot, copy token
+3. Under "Privileged Gateway Intents", enable **Message Content Intent**
+4. OAuth2 → URL Generator → select `bot` + `applications.commands` scopes
+5. Bot permissions: Read Messages, Send Messages, Read Message History, Use Slash Commands
+6. Copy the generated URL, open it in browser, invite bot to your server
+7. In Discord: right-click your #running channel → Copy Channel ID → paste as `DISCORD_RUNNING_CHANNEL_ID`
+
+---
 
 ## Usage
 
+### Terminal
+
 ```bash
-./.venv/bin/python main.py            # dashboard
-./.venv/bin/python main.py status     # quick status
-./.venv/bin/python main.py sync       # sync + analyze recent runs
-./.venv/bin/python main.py plan       # generate weekly plan
-./.venv/bin/python main.py analyze <activity_id>
-./.venv/bin/python main.py webhook
+python main.py                    # Full weekly dashboard
+python main.py sync               # Pull Strava activities + run analysis
+python main.py plan               # Generate this week's training plan
+python main.py status             # Quick status: miles, shoes, recent runs
+python main.py analyze <id>       # Analyze a specific Strava activity
+python main.py discord            # Start Jarvis Discord bot
 ```
 
-## Data storage
+### Discord Slash Commands
 
-- `~/.paceiq/activities.db`
-- `~/.paceiq/shoe_miles.json`
-- `~/.paceiq/plans/`
+| Command | What it does |
+|---|---|
+| `/sync` | Pull latest Strava activities and post analysis |
+| `/plan` | Generate this week's training plan |
+| `/status` | Current week mileage, run count, shoe check |
+| `/run <activity_id>` | Analyze a specific Strava activity |
 
-## Garmin snapshot workflow
+### Discord Natural Language
 
-Weekly trend tracker file:
-- `garmin_snapshot.md`
+Just talk to Jarvis in #running or #general. In #running, every message gets full training context injected. Ask things like:
 
-Current process: manual Garmin screenshots + periodic value logging.
+- "How was my run yesterday?"
+- "Should I do a tempo today or push it to tomorrow?"
+- "My legs feel heavy — what's going on?"
+- "What's the plan for Saturday?"
 
-## Tradeoffs
+---
 
-- Chose CLI-first UX for iteration speed
-- Used OpenClaw bridge to reuse existing AI runtime
-- Added timeout/fallback behavior to keep sync reliable under AI instability
-- Uses PaceIQ shoe assignment rules as source-of-truth (ignores Strava shoe metadata for lower user overhead)
+## Channel Setup Recommendation
 
-## Suggested screenshots (portfolio)
+```
+Your Discord Server
+├── #general       ← Jarvis general assistant
+├── #running       ← PaceIQ running coach mode (set as DISCORD_RUNNING_CHANNEL_ID)
+└── #garmin-log    ← Drop weekly Garmin snapshots here
+```
 
-Add these files under `docs/screenshots/`:
+---
 
-- `dashboard-status.png`
-- `post-run-analysis.png`
-- `weekly-plan-output.png`
-- `garmin-weekly-snapshot.png`
+## Identity Files
 
-When ready, they can be embedded directly in this README.
+| File | Purpose |
+|---|---|
+| `SOUL.md` | Core values and who Jarvis is |
+| `IDENTITY.md` | Role, name, vibe |
+| `USER.md` | Tony's context and preferences |
+| `JARVIS.md` | Operating principles |
+| `HEARTBEAT.md` | Periodic task schedule |
+| `TOOLS.md` | Available tools and integrations |
 
-## Next iteration (portfolio roadmap)
+---
 
-- `--no-ai` explicit mode for guaranteed fast sync
-- Provider health check command
-- Better report artifacts (weekly summary markdown/json)
-- More test coverage for analyzer and planner logic
+## Future Agents
+
+Jarvis is designed to grow. Planned channel expansions:
+
+- **#hsr** — HSR Bot integration (tactical gaming assistant)
+- **#finance** — spending summaries, budget check-ins
+- **#projects** — project status pings, git activity digests
+
+Each channel becomes its own agent mode. Same Jarvis, different context injection.
+
+---
+
+## Data Storage
+
+- `~/.paceiq/activities.db` — SQLite activity history
+- `~/.paceiq/shoe_miles.json` — Shoe mileage tracking
+- `~/.paceiq/plans/` — Generated training plans
+- `garmin_snapshot.md` — Weekly Garmin readiness log

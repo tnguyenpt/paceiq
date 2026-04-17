@@ -10,6 +10,7 @@ Usage:
     python main.py plan               # Generate this week's training plan
     python main.py webhook            # Start Strava webhook listener
     python main.py status             # Quick status check
+    python main.py discord            # Start Jarvis Discord bot
 """
 
 import sys
@@ -438,6 +439,7 @@ Commands:
   plan            Generate this week's training plan with Claude
   webhook         Start Strava webhook listener (port 5000)
   status          Quick status: week progress and shoe mileage
+  discord         Start Jarvis Discord bot
 
 Examples:
   python main.py
@@ -445,13 +447,14 @@ Examples:
   python main.py analyze 12345678901
   python main.py plan
   python main.py status
+  python main.py discord
         """,
     )
     parser.add_argument(
         "command",
         nargs="?",
         default="dashboard",
-        choices=["dashboard", "analyze", "sync", "plan", "webhook", "status"],
+        choices=["dashboard", "analyze", "sync", "plan", "webhook", "status", "discord"],
         help="Command to run (default: dashboard)",
     )
     parser.add_argument(
@@ -492,6 +495,10 @@ Examples:
 
     elif args.command == "status":
         cmd_status()
+
+    elif args.command == "discord":
+        from discord_bot import run_discord_bot
+        run_discord_bot()
 
     else:
         parser.print_help()
