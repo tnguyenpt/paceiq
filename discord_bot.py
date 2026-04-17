@@ -27,10 +27,11 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from coach import analyze_run_with_ai, generate_weekly_plan, build_system_prompt
-from database import get_recent_activities, get_activities_by_week, init_db
-from activity_analyzer import compute_weekly_stats
+from database import get_recent_activities, get_activities_by_week, get_activities_since, init_db
+from activity_analyzer import compute_weekly_stats, meters_to_miles, seconds_to_pace
 from weekly_planner import get_current_week_number, get_tempo_target_for_week
 from config import get_config, load_shoe_miles
+from strava_client import refresh_access_token, get_all_activities_since, get_activity_detail, get_athlete, StravaAPIError
 import anthropic
 
 # Channel IDs from env
@@ -58,43 +59,184 @@ def get_channel_mode(channel_id: int, channel_name: str) -> str:
 
 
 def build_running_context() -> str:
-    """Build context string with recent activity data for running mode."""
+    """Build context string with recent and historical activity data for running mode."""
+    from datetime import date
+    from collections import defaultdict
+
     try:
         init_db()
-        recent = get_recent_activities(5)
         week_num, year = get_current_week_number()
         week_activities = get_activities_by_week(week_num, year)
+        recent = get_recent_activities(7)
         shoe_miles = load_shoe_miles()
 
         context_lines = []
 
+        # Current week summary
         if week_activities:
             stats = compute_weekly_stats(week_activities)
-            context_lines.append(f"This week (Week {week_num}): {stats['total_miles']:.1f}/{30} miles, {len(week_activities)} runs")
+            context_lines.append(f"This week (Week {week_num}): {stats['total_miles']:.1f} miles, {len(week_activities)} runs")
             if stats.get("avg_tempo_pace"):
-                context_lines.append(f"Avg tempo pace this week: {stats['avg_tempo_pace']}")
+                context_lines.append(f"  Avg tempo pace: {stats['avg_tempo_pace']}")
 
+        # Last 7 days detail
         if recent:
-            context_lines.append("\nRecent activities:")
-            for act in recent[:3]:
+            context_lines.append("\nRecent runs (last 7 days):")
+            for act in recent:
                 context_lines.append(
-                    f"  - {act.get('date', 'unknown date')}: {act.get('run_type', 'run')} "
-                    f"{act.get('distance_miles', 0):.1f}mi @ {act.get('avg_pace', '?')}/mi "
-                    f"| {act.get('avg_hr', '?')} bpm avg"
+                    f"  {act.get('date', '?')}: {act.get('run_type', 'run')} "
+                    f"{act.get('distance_miles', 0):.1f}mi @ {act.get('avg_pace', '?')}/mi"
+                    f" | {act.get('avg_hr', '?')} bpm"
                 )
 
+        # YTD summary — monthly mileage breakdown
+        ytd_start = f"{date.today().year}-01-01"
+        ytd_activities = get_activities_since(ytd_start)
+        if ytd_activities:
+            monthly = defaultdict(float)
+            ytd_total = 0.0
+            for act in ytd_activities:
+                d = act.get("date", "")
+                if len(d) >= 7:
+                    month = d[:7]  # "YYYY-MM"
+                    miles = act.get("distance_miles", 0) or 0
+                    monthly[month] += miles
+                    ytd_total += miles
+
+            context_lines.append(f"\nYTD total: {ytd_total:.1f} miles across {len(ytd_activities)} runs")
+            context_lines.append("Monthly breakdown:")
+            for month in sorted(monthly):
+                context_lines.append(f"  {month}: {monthly[month]:.1f} miles")
+
+        # Shoe mileage
         if shoe_miles:
             context_lines.append("\nShoe mileage:")
             for shoe, miles in shoe_miles.items():
-                context_lines.append(f"  - {shoe}: {miles:.0f} miles")
+                context_lines.append(f"  {shoe}: {miles:.0f} miles")
 
-        return "\n".join(context_lines) if context_lines else "No recent activity data available."
+        return "\n".join(context_lines) if context_lines else "No activity data available."
     except Exception as e:
         return f"(Could not load activity data: {e})"
 
 
+STRAVA_TOOLS = [
+    {
+        "name": "get_activities",
+        "description": (
+            "Fetch runs from Strava for a date range. Use this when asked about specific "
+            "time periods, YTD stats, monthly breakdowns, recent runs, or any historical data."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "Start date YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "End date YYYY-MM-DD (optional, defaults to today)"},
+            },
+            "required": ["start_date"],
+        },
+    },
+    {
+        "name": "get_activity_detail",
+        "description": "Fetch full detail for a specific run including laps and splits.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "activity_id": {"type": "integer", "description": "Strava activity ID"},
+            },
+            "required": ["activity_id"],
+        },
+    },
+    {
+        "name": "get_athlete_stats",
+        "description": "Fetch the athlete's Strava profile and all-time stats.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+]
+
+
+def _get_access_token() -> str:
+    cfg = get_config()
+    tokens = refresh_access_token(cfg["strava_client_id"], cfg["strava_client_secret"], cfg["strava_refresh_token"])
+    return tokens["access_token"]
+
+
+def _format_activity(a: dict) -> str:
+    dist = meters_to_miles(a.get("distance", 0))
+    pace = seconds_to_pace(a.get("average_speed", 0)) if a.get("average_speed") else "?"
+    hr = a.get("average_heartrate", "?")
+    name = a.get("name", "Run")
+    date = (a.get("start_date_local") or "")[:10]
+    run_type = a.get("type", "Run")
+    return f"{date} | {name} | {dist:.1f}mi @ {pace}/mi | {hr} bpm avg"
+
+
+def _execute_strava_tool(tool_name: str, tool_input: dict) -> str:
+    try:
+        token = _get_access_token()
+
+        if tool_name == "get_activities":
+            from datetime import datetime, timezone
+            start = datetime.strptime(tool_input["start_date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            after_ts = int(start.timestamp())
+
+            end_date = tool_input.get("end_date")
+            if end_date:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                before_ts = int(end_dt.timestamp())
+            else:
+                before_ts = None
+
+            raw = get_all_activities_since(token, after_timestamp=after_ts)
+            runs = [a for a in raw if a.get("type") == "Run" or a.get("sport_type") == "Run"]
+            if before_ts:
+                runs = [a for a in runs if int(datetime.fromisoformat(a["start_date_local"].replace("Z","")).replace(tzinfo=timezone.utc).timestamp()) <= before_ts]
+
+            if not runs:
+                return "No runs found in that date range."
+
+            total_miles = sum(meters_to_miles(a.get("distance", 0)) for a in runs)
+            lines = [f"{len(runs)} runs, {total_miles:.1f} total miles\n"]
+            for a in sorted(runs, key=lambda x: x.get("start_date_local", ""), reverse=True):
+                lines.append(_format_activity(a))
+            return "\n".join(lines)
+
+        elif tool_name == "get_activity_detail":
+            a = get_activity_detail(token, tool_input["activity_id"])
+            dist = meters_to_miles(a.get("distance", 0))
+            pace = seconds_to_pace(a.get("average_speed", 0)) if a.get("average_speed") else "?"
+            lines = [
+                f"{a.get('name')} — {(a.get('start_date_local') or '')[:10]}",
+                f"Distance: {dist:.2f}mi | Pace: {pace}/mi | Avg HR: {a.get('average_heartrate','?')} bpm | Max HR: {a.get('max_heartrate','?')} bpm",
+                f"Elevation gain: {a.get('total_elevation_gain',0):.0f}m | Moving time: {a.get('moving_time',0)//60}min",
+            ]
+            laps = a.get("laps", [])
+            if laps:
+                lines.append(f"\nLaps ({len(laps)}):")
+                for i, lap in enumerate(laps, 1):
+                    lp = seconds_to_pace(lap.get("average_speed", 0)) if lap.get("average_speed") else "?"
+                    lm = meters_to_miles(lap.get("distance", 0))
+                    lines.append(f"  Lap {i}: {lm:.2f}mi @ {lp}/mi | {lap.get('average_heartrate','?')} bpm")
+            return "\n".join(lines)
+
+        elif tool_name == "get_athlete_stats":
+            athlete = get_athlete(token)
+            return (
+                f"Name: {athlete.get('firstname','')} {athlete.get('lastname','')}\n"
+                f"Location: {athlete.get('city','')}, {athlete.get('state','')}\n"
+                f"Follower count: {athlete.get('follower_count', 'N/A')}\n"
+                f"All-time runs: available via activity history"
+            )
+
+        return f"Unknown tool: {tool_name}"
+
+    except StravaAPIError as e:
+        return f"Strava error: {e}"
+    except Exception as e:
+        return f"Tool error: {e}"
+
+
 async def ask_jarvis(channel_id: int, user_message: str, mode: str) -> str:
-    """Send a message to Claude as Stride and stream the response."""
+    """Send a message to Claude as Stride, with Strava tool use."""
     config = get_config()
     api_key = config.get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -102,43 +244,60 @@ async def ask_jarvis(channel_id: int, user_message: str, mode: str) -> str:
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    # Build system prompt
     system = build_system_prompt()
-
-    # Add running context if in running mode
     if mode == "running":
         running_ctx = build_running_context()
         system += f"\n\n## Current Training Data\n{running_ctx}"
 
-    # Get or init conversation history
     if channel_id not in conversation_history:
         conversation_history[channel_id] = []
 
     history = conversation_history[channel_id]
     history.append({"role": "user", "content": user_message})
 
-    # Trim history
     if len(history) > MAX_HISTORY * 2:
         history = history[-(MAX_HISTORY * 2):]
         conversation_history[channel_id] = history
 
-    # Stream response
+    # Agentic tool-use loop
+    messages = list(history)
     response_text = ""
     try:
-        with client.messages.stream(
-            model="claude-opus-4-6",
-            max_tokens=1024,
-            system=system,
-            messages=history,
-        ) as stream:
-            for text in stream.text_stream:
-                response_text += text
+        while True:
+            response = await asyncio.to_thread(
+                client.messages.create,
+                model=config.get("llm_model") or "claude-haiku-4-5",
+                max_tokens=1024,
+                system=system,
+                tools=STRAVA_TOOLS,
+                messages=messages,
+            )
+
+            if response.stop_reason == "tool_use":
+                # Execute all tool calls and collect results
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        result = await asyncio.to_thread(_execute_strava_tool, block.name, block.input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        })
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": tool_results})
+
+            else:
+                # Final text response
+                for block in response.content:
+                    if hasattr(block, "text"):
+                        response_text += block.text
+                break
+
     except Exception as e:
         return f"Error reaching Claude: {e}"
 
-    # Save assistant response to history
     history.append({"role": "assistant", "content": response_text})
-
     return response_text
 
 
